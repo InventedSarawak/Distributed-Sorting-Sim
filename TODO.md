@@ -1,8 +1,8 @@
 # 🚀 Distributed Sorting Simulator: Execution Checklist
 
 ## 1. Project Initialization & Setup
-- [ ] Initialize Go module: `go mod init <your-repo-name>`
-- [ ] Create folder structure:
+- [x] Initialize Go module: `go mod init <your-repo-name>`
+- [x] Create folder structure:
     - `cmd/`, `internal/`, `pkg/`, `bin/`, `scripts/`, `outputs/`
 - [ ] Define shared message types in `pkg/types/message.go` (Value, Step, Type).
 - [ ] Implement TCP Node primitives in `internal/transport/tcp_node.go`:
