@@ -4,7 +4,7 @@
 - [x] Initialize Go module: `go mod init <your-repo-name>`
 - [x] Create folder structure:
     - `cmd/`, `internal/`, `pkg/`, `bin/`, `scripts/`, `outputs/`
-- [ ] Define shared message types in `pkg/types/message.go` (Value, Step, Type).
+- [x] Define shared message types in `pkg/types/message.go` (Value, Step, Type).
 - [ ] Implement TCP Node primitives in `internal/transport/tcp_node.go`:
     - [ ] `Listen()` logic for incoming neighbor connections.
     - [ ] `Connect()` logic to link to left/right neighbors.
