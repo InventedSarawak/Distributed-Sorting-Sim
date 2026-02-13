@@ -6,9 +6,9 @@
     - `cmd/`, `internal/`, `pkg/`, `bin/`, `scripts/`, `outputs/`
 - [x] Define shared message types in `pkg/types/message.go` (Value, Step, Type).
 - [ ] Implement TCP Node primitives in `internal/transport/tcp_node.go`:
-    - [ ] `Listen()` logic for incoming neighbor connections.
-    - [ ] `Connect()` logic to link to left/right neighbors.
-    - [ ] `Send/Receive` helpers with JSON encoding.
+    - [x] `Listen()` logic for incoming neighbor connections.
+    - [x] `Connect()` logic to link to left/right neighbors.
+    - [x] `Send/Receive` helpers with JSON encoding.
     - [ ] Barrier Synchronization logic (to keep rounds in sync).
 
 ---
