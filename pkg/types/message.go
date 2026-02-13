@@ -27,30 +27,7 @@ const (
 	MsgData MessageType = "DATA"
 	MsgSync MessageType = "SYNC"
 	MsgTerm MessageType = "TERM"
-	MsgAck  MessageType = "ACK"
 )
-
-type AlgorithmType int
-
-const (
-	OddEven AlgorithmType = iota
-	Sasaki
-	Alternate
-)
-
-type InputType int
-
-const (
-	Random InputType = iota
-	Sorted
-	Reverse
-)
-
-type Config struct {
-	NodeCount uint
-	InputType InputType
-	Algorithm AlgorithmType
-}
 
 type Message[Payload any] struct {
 	Round             int         `json:"round"`
