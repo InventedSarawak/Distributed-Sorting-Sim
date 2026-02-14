@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"sync"
 
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/simulator"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
@@ -37,6 +38,8 @@ func RunAlternative(
 		}
 
 		isCenterNode := (n.ID >= phaseStartID) && ((n.ID-phaseStartID)%3 == 0)
+		isLeftWing := (n.ID+1 >= phaseStartID) && ((n.ID+1-phaseStartID)%3 == 0) && n.Position != types.Tail
+		isRightWing := (n.ID-1 >= phaseStartID) && ((n.ID-1-phaseStartID)%3 == 0) && n.Position != types.Head
 
 		msg := types.Message[AlternativePayload]{
 			SenderID: n.ID,
@@ -46,36 +49,49 @@ func RunAlternative(
 		}
 
 		if isCenterNode {
+
 			var leftValue, rightValue int
 			var hasLeftNeighbor, hasRightNeighbor bool
+			var wg sync.WaitGroup
 
 			if n.Position != types.Head {
-				leftMsg, _ := simulator.WaitForNeighbors(n, round, leftBuf, rightBuf)
-				if leftMsg != nil {
-					leftValue = leftMsg.Body.Value
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					m := leftBuf.GetStepMessage(round)
+					leftValue = m.Body.Value
 					hasLeftNeighbor = true
-				}
+				}()
 			}
 
 			if n.Position != types.Tail {
-				_, rightMsg := simulator.WaitForNeighbors(n, round, leftBuf, rightBuf)
-				if rightMsg != nil {
-					rightValue = rightMsg.Body.Value
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					m := rightBuf.GetStepMessage(round)
+					rightValue = m.Body.Value
 					hasRightNeighbor = true
-				}
+				}()
 			}
+
+			wg.Wait()
 
 			leftCandidate, centerCandidate, rightCandidate := leftValue, n.Value.Value, rightValue
 
 			if !hasLeftNeighbor && hasRightNeighbor {
+
 				if centerCandidate > rightCandidate {
 					centerCandidate, rightCandidate = rightCandidate, centerCandidate
 				}
 			} else if hasLeftNeighbor && !hasRightNeighbor {
+
 				if leftCandidate > centerCandidate {
 					leftCandidate, centerCandidate = centerCandidate, leftCandidate
 				}
 			} else if hasLeftNeighbor && hasRightNeighbor {
+
 				ordered := []int{leftValue, n.Value.Value, rightValue}
 				sort.Ints(ordered)
 				leftCandidate, centerCandidate, rightCandidate = ordered[0], ordered[1], ordered[2]
@@ -94,28 +110,21 @@ func RunAlternative(
 				_ = sendFunc(n.RightConn, msg)
 			}
 
-		} else {
-			isLeftWing := (n.ID+1 >= phaseStartID) && ((n.ID+1-phaseStartID)%3 == 0) && n.Position != types.Tail
-			isRightWing := (n.ID-1 >= phaseStartID) && ((n.ID-1-phaseStartID)%3 == 0) && n.Position != types.Head
+		} else if isLeftWing {
 
-			if isLeftWing {
-				msg.ReceiverID = n.ID + 1
-				_ = sendFunc(n.RightConn, msg)
+			msg.ReceiverID = n.ID + 1
+			_ = sendFunc(n.RightConn, msg)
 
-				_, rightMsg := simulator.WaitForNeighbors(n, round, leftBuf, rightBuf)
-				if rightMsg != nil {
-					n.Value.Value = rightMsg.Body.Value
-				}
+			reply := rightBuf.GetStepMessage(round)
+			n.Value.Value = reply.Body.Value
 
-			} else if isRightWing {
-				msg.ReceiverID = n.ID - 1
-				_ = sendFunc(n.LeftConn, msg)
+		} else if isRightWing {
 
-				leftMsg, _ := simulator.WaitForNeighbors(n, round, leftBuf, rightBuf)
-				if leftMsg != nil {
-					n.Value.Value = leftMsg.Body.Value
-				}
-			}
+			msg.ReceiverID = n.ID - 1
+			_ = sendFunc(n.LeftConn, msg)
+
+			reply := leftBuf.GetStepMessage(round)
+			n.Value.Value = reply.Body.Value
 		}
 
 		engine.IncrementClock(n)

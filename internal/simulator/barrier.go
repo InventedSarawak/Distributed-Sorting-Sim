@@ -3,7 +3,6 @@ package simulator
 import (
 	"sync"
 
-	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/transport"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
 )
 
@@ -66,21 +65,4 @@ func WaitForNeighbors[T any](n *types.Node[T], currentRound int, leftBuf, rightB
 
 	wg.Wait()
 	return
-}
-
-func BroadcastTermination[T any](n *types.Node[T]) {
-	termMsg := types.Message[T]{
-		Type:     types.MsgTerm,
-		SenderID: n.ID,
-		Round:    n.Round,
-	}
-
-	if n.Position != types.Tail {
-
-		_ = transport.SendMessage(n.RightConn, termMsg)
-	}
-	if n.Position != types.Head {
-
-		_ = transport.SendMessage(n.LeftConn, termMsg)
-	}
 }

@@ -59,48 +59,47 @@ func RunSasaki(
 
 		if n.Position != types.Tail {
 			msg.ReceiverID = n.ID + 1
-			msg.Body.LValue = n.Value.RValue
+			msg.Body.RValue = n.Value.RValue
+			msg.Body.LValue = SasakiElement{}
 			_ = sendFunc(n.RightConn, msg)
 		}
 
 		if n.Position != types.Head {
 			msg.ReceiverID = n.ID - 1
-			msg.Body.RValue = n.Value.LValue
+			msg.Body.LValue = n.Value.LValue
+			msg.Body.RValue = SasakiElement{}
 			_ = sendFunc(n.LeftConn, msg)
 		}
 
 		leftMsg, rightMsg := simulator.WaitForNeighbors(n, round, leftBuf, rightBuf)
 
 		if n.Position != types.Head && leftMsg != nil {
-			leftIncomingRight := leftMsg.Body.RValue
-			if leftIncomingRight.Value > n.Value.LValue.Value {
-				if leftIncomingRight.IsMarked {
+			leftIncomingR := leftMsg.Body.RValue
+
+			if leftIncomingR.Value > n.Value.LValue.Value {
+
+				if leftIncomingR.IsMarked {
 					n.Value.Area--
 				}
 				if n.Value.LValue.IsMarked {
 					n.Value.Area++
 				}
-				n.Value.LValue = leftIncomingRight
+
+				n.Value.LValue = leftIncomingR
 			}
 		}
 
 		if n.Position != types.Tail && rightMsg != nil {
-			rightIncomingLeft := rightMsg.Body.LValue
-			if rightIncomingLeft.Value < n.Value.RValue.Value {
-				if rightIncomingLeft.IsMarked {
-					n.Value.Area++
-				}
-				if n.Value.RValue.IsMarked {
-					n.Value.Area--
-				}
-				n.Value.RValue = rightIncomingLeft
+			rightIncomingL := rightMsg.Body.LValue
+			if rightIncomingL.Value < n.Value.RValue.Value {
+				n.Value.RValue = rightIncomingL
 			}
 		}
 
 		if n.Value.LValue.Value > n.Value.RValue.Value {
-			leftTemp := n.Value.LValue
+			temp := n.Value.LValue
 			n.Value.LValue = n.Value.RValue
-			n.Value.RValue = leftTemp
+			n.Value.RValue = temp
 		}
 
 		engine.IncrementClock(n)
