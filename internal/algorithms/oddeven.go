@@ -1,53 +1,58 @@
 package algorithms
 
 import (
+	"fmt"
+	"net"
+
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/simulator"
-	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/transport"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
 )
 
-// OddEvenPayload represents the data exchanged during the sort.
 type OddEvenPayload struct {
 	Value int `json:"value"`
 }
 
-// RunOddEven runs the $N$ rounds of the transposition sort.
-func RunOddEven(n *types.Node[OddEvenPayload], engine *simulator.SimulatorEngine[OddEvenPayload], leftBuf, rightBuf *simulator.RoundBuffer[OddEvenPayload]) {
-	// Total rounds required for Odd-Even is equal to the number of nodes
+func RunOddEven(
+	n *types.Node[OddEvenPayload],
+	engine *simulator.SimulatorEngine[OddEvenPayload],
+	leftBuf, rightBuf *simulator.RoundBuffer[OddEvenPayload],
+	sendFunc func(net.Conn, types.Message[OddEvenPayload]) error,
+) {
+	fmt.Printf("[Algo] Node %d: Starting Sort (Value: %d)\n", n.ID, n.Value.Value)
+
 	for round := 0; round < n.TotalNode; round++ {
 		isEvenRound := round%2 == 0
 		isEvenNode := n.ID%2 == 0
 
-		// Determine if this node should compare with Left or Right this round
 		var targetID int
 		var isLeftExchange bool
 
 		if isEvenRound {
 			if isEvenNode {
-				targetID = n.ID + 1 // Even node pairs with Right (ID+1)
+				targetID = n.ID + 1
 				isLeftExchange = false
 			} else {
-				targetID = n.ID - 1 // Odd node pairs with Left (ID-1)
+				targetID = n.ID - 1
 				isLeftExchange = true
 			}
 		} else {
 			if isEvenNode {
-				targetID = n.ID - 1 // Even node pairs with Left (ID-1)
+				targetID = n.ID - 1
 				isLeftExchange = true
 			} else {
-				targetID = n.ID + 1 // Odd node pairs with Right (ID+1)
+				targetID = n.ID + 1
 				isLeftExchange = false
 			}
 		}
 
-		// Execute exchange if neighbor exists
 		if targetID >= 0 && targetID < n.TotalNode {
-			// 1. Send current value to neighbor
+			// Send
 			msg := types.Message[OddEvenPayload]{
-				SenderID: n.ID,
-				Round:    round,
-				Body:     n.Value,
-				Type:     types.MsgData,
+				SenderID:   n.ID,
+				ReceiverID: targetID,
+				Round:      round,
+				Body:       n.Value,
+				Type:       types.MsgData,
 			}
 
 			conn := n.RightConn
@@ -55,9 +60,11 @@ func RunOddEven(n *types.Node[OddEvenPayload], engine *simulator.SimulatorEngine
 				conn = n.LeftConn
 			}
 
-			transport.SendMessage(conn, msg)
+			// fmt.Printf("[Algo] Node %d: Round %d - Sending to %d\n", n.ID, round, targetID)
+			_ = sendFunc(conn, msg)
 
-			// 2. Receive neighbor's value using the RoundBuffer barrier
+			// Receive
+			// fmt.Printf("[Algo] Node %d: Round %d - Waiting for %d\n", n.ID, round, targetID)
 			var neighborMsg types.Message[OddEvenPayload]
 			if isLeftExchange {
 				neighborMsg = leftBuf.GetStepMessage(round)
@@ -65,21 +72,25 @@ func RunOddEven(n *types.Node[OddEvenPayload], engine *simulator.SimulatorEngine
 				neighborMsg = rightBuf.GetStepMessage(round)
 			}
 
-			// 3. Compare and Swap
+			// Compare
+			oldVal := n.Value.Value
 			neighborVal := neighborMsg.Body.Value
 			if isLeftExchange {
-				// If I am the right side of the pair, I take the MAX
 				if n.Value.Value < neighborVal {
 					n.Value.Value = neighborVal
 				}
 			} else {
-				// If I am the left side of the pair, I take the MIN
 				if n.Value.Value > neighborVal {
 					n.Value.Value = neighborVal
 				}
+			}
+
+			if oldVal != n.Value.Value {
+				fmt.Printf("[Algo] Node %d: Swapped %d -> %d (Round %d)\n", n.ID, oldVal, n.Value.Value, round)
 			}
 		}
 
 		engine.IncrementClock(n)
 	}
+	fmt.Printf("[Algo] Node %d: Sort Complete. Final Value: %d\n", n.ID, n.Value.Value)
 }

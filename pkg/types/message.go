@@ -60,7 +60,7 @@ type Message[Payload any] struct {
 	ReceiverID        int         `json:"receiver_id"`
 	IncomingDirection Direction   `json:"incoming_direction"`
 	Timestamp         time.Time   `json:"timestamp"`
-	Sequence          uint64         `json:"sequence"`
+	Sequence          uint64      `json:"sequence"`
 }
 
 type Node[Payload any] struct {

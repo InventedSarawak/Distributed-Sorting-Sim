@@ -5,26 +5,24 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/algorithms"
-	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/simulator" // Fixed: Import the simulator package
+	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/simulator"
+	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/transport"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/shared"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
 )
 
 func main() {
-	// Define flags for node count and input type
-	nodeCount := flag.Uint("node-count", 50, "Enter the number of Nodes")
-	inputTypeStr := flag.String("input-type", "random", "Enter the type of input (random, sorted, reverse)")
+	nodeCount := flag.Uint("node-count", 10, "Number of Nodes") // Default to 10 for debug
+	inputTypeStr := flag.String("input-type", "random", "Input type")
 	flag.Parse()
 
-	// Validate node count
-	if *nodeCount <= 0 || *nodeCount > 7000 {
-		flag.Usage()
-		panic("Invalid node count. Must be between 1 and 7000.")
-	}
+	fmt.Printf("--- Distributed Sorting Simulator ---\n")
+	fmt.Printf("Nodes: %d | Type: %s\n", *nodeCount, *inputTypeStr)
 
-	// Map string flag to InputType constant
+	// ... (Input type switch logic same as before) ...
 	var inputType types.InputType
 	switch strings.ToLower(*inputTypeStr) {
 	case "random":
@@ -34,36 +32,31 @@ func main() {
 	case "reverse":
 		inputType = types.Reverse
 	default:
-		flag.Usage()
-		panic("Invalid input type. Must be one of: random, sorted, reverse.")
+		panic("Invalid input type")
 	}
 
-	// Initialize configuration
 	cfg := types.Config{
 		NodeCount: uint(*nodeCount),
-		InputType: inputType, // Fixed: Using the inputType variable resolves the UnusedVar error
+		InputType: inputType,
 		Algorithm: types.OddEven,
 	}
 
-	// Create the simulation engine
 	engine := simulator.NewEngine[algorithms.OddEvenPayload](int(*nodeCount))
 	var wg sync.WaitGroup
 
-	// Spawn N nodes
 	for i := 0; i < int(*nodeCount); i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			// Initialize Node Struct
 			node := &types.Node[algorithms.OddEvenPayload]{
-				ID:         id,
-				TotalNode:  int(*nodeCount),
-				LeftInbox:  make(chan types.Message[algorithms.OddEvenPayload], 100),
-				RightInbox: make(chan types.Message[algorithms.OddEvenPayload], 100),
+				ID:        id,
+				TotalNode: int(*nodeCount),
+				// Buffer sizes increased to prevent deadlocks
+				LeftInbox:  make(chan types.Message[algorithms.OddEvenPayload], 500),
+				RightInbox: make(chan types.Message[algorithms.OddEvenPayload], 500),
 			}
 
-			// Assign Position based on ID
 			if id == 0 {
 				node.Position = types.Head
 			} else if id == int(*nodeCount)-1 {
@@ -72,24 +65,30 @@ func main() {
 				node.Position = types.Middle
 			}
 
-			// 1. Setup Persistent Connections & Dispatchers
-			// Ensure these functions are defined in your internal/simulator package
 			leftBuf := simulator.NewRoundBuffer(node.LeftInbox)
 			rightBuf := simulator.NewRoundBuffer(node.RightInbox)
 
+			// 1. Setup (Network + Discovery)
 			if err := simulator.SetupNode(node); err != nil {
-				fmt.Printf("Error setting up node %d: %v\n", id, err)
+				fmt.Printf("Error setup node %d: %v\n", id, err)
 				return
 			}
 
-			// 2. Initial Setup (Discovery & Generation)
-			// The generator uses the config.InputType to decide how to fill node.Value
-			shared.GenerateInitialValue(node, cfg)
+			// Slight delay to ensure listeners are active before discovery flooding
+			time.Sleep(100 * time.Millisecond)
 
-			// 3. Run Algorithm
-			algorithms.RunOddEven(node, engine, leftBuf, rightBuf)
+			if err := engine.InitialSetup(node, cfg, leftBuf, rightBuf); err != nil {
+				fmt.Printf("Error discovery node %d: %v\n", id, err)
+				return
+			}
 
-			fmt.Printf("Node %d finished. Final Value: %v\n", id, node.Value.Value)
+			// 2. Generate Value
+			val := shared.GenerateInitialValue(id, cfg)
+			node.Value = algorithms.OddEvenPayload{Value: val}
+
+			// 3. Run
+			algorithms.RunOddEven(node, engine, leftBuf, rightBuf, transport.SendMessage[algorithms.OddEvenPayload])
+
 		}(i)
 	}
 
