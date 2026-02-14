@@ -25,67 +25,67 @@ func RunOddEven(
 
 	for round := 0; round < n.TotalNode; round++ {
 		isEvenRound := round%2 == 0
-		isEvenNode := n.ID%2 == 0
+		isEvenNodeID := n.ID%2 == 0
 
-		var targetID int
-		var isLeftExchange bool
+		var partnerID int
+		var exchangeWithLeft bool
 
 		if isEvenRound {
-			if isEvenNode {
-				targetID = n.ID + 1
-				isLeftExchange = false
+			if isEvenNodeID {
+				partnerID = n.ID + 1
+				exchangeWithLeft = false
 			} else {
-				targetID = n.ID - 1
-				isLeftExchange = true
+				partnerID = n.ID - 1
+				exchangeWithLeft = true
 			}
 		} else {
-			if isEvenNode {
-				targetID = n.ID - 1
-				isLeftExchange = true
+			if isEvenNodeID {
+				partnerID = n.ID - 1
+				exchangeWithLeft = true
 			} else {
-				targetID = n.ID + 1
-				isLeftExchange = false
+				partnerID = n.ID + 1
+				exchangeWithLeft = false
 			}
 		}
 
-		if targetID >= 0 && targetID < n.TotalNode {
+		if partnerID >= 0 && partnerID < n.TotalNode {
 			msg := types.Message[OddEvenPayload]{
 				SenderID:   n.ID,
-				ReceiverID: targetID,
+				ReceiverID: partnerID,
 				Round:      round,
 				Body:       n.Value,
 				Type:       types.MsgData,
 			}
 
 			conn := n.RightConn
-			if isLeftExchange {
+			if exchangeWithLeft {
 				conn = n.LeftConn
 			}
 
 			_ = sendFunc(conn, msg)
 
 			var neighborMsg types.Message[OddEvenPayload]
-			if isLeftExchange {
+			if exchangeWithLeft {
 				neighborMsg = leftBuf.GetStepMessage(round)
 			} else {
 				neighborMsg = rightBuf.GetStepMessage(round)
 			}
 
-			oldVal := n.Value.Value
-			neighborVal := neighborMsg.Body.Value
+			previousValue := n.Value.Value
+			neighborValue := neighborMsg.Body.Value
 
-			if isLeftExchange {
-				if n.Value.Value < neighborVal {
-					n.Value.Value = neighborVal
+			if exchangeWithLeft {
+				if n.Value.Value < neighborValue {
+					n.Value.Value = neighborValue
 				}
 			} else {
-				if n.Value.Value > neighborVal {
-					n.Value.Value = neighborVal
+				if n.Value.Value > neighborValue {
+					n.Value.Value = neighborValue
 				}
 			}
 
-			if debug && oldVal != n.Value.Value {
-				fmt.Printf("[Algo] Node %d: Swapped %d -> %d (Round %d)\n", n.ID, oldVal, n.Value.Value, round)
+			if debug && previousValue != n.Value.Value {
+				fmt.Printf("[Algo] Node %d: Swapped %d -> %d (Round %d)\n", n.ID, previousValue, n.Value.Value, round)
 			}
 		}
 		engine.IncrementClock(n)

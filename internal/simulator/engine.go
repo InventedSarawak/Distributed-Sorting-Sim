@@ -92,12 +92,13 @@ func SetupNode[T any](n *types.Node[T], debug bool) error {
 					return
 				}
 
-				if handshake.SenderID == n.ID-1 {
+				switch handshake.SenderID {
+				case n.ID - 1:
 					n.LeftConn = c
 					if debug {
 						fmt.Printf("[Net] Node %d: Accepted LeftConn from %d\n", n.ID, handshake.SenderID)
 					}
-				} else if handshake.SenderID == n.ID+1 {
+				case n.ID + 1:
 					n.RightConn = c
 					if debug {
 						fmt.Printf("[Net] Node %d: Accepted RightConn from %d\n", n.ID, handshake.SenderID)

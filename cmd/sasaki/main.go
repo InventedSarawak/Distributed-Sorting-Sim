@@ -75,7 +75,7 @@ func main() {
 			}
 
 			val := shared.GenerateInitialValue(id, cfg)
-			node.Value = algorithms.SasakiPayload{Value: val, IsMarked: false}
+			node.Value = algorithms.SasakiPayload{Value: val}
 
 			initialArray[id] = val
 
@@ -86,7 +86,7 @@ func main() {
 	}
 	wg.Wait()
 
-	if *nodeCount < 20 {
+	if *nodeCount <= 20 {
 		fmt.Printf("\n--- Results (N=%d) ---\n", *nodeCount)
 		fmt.Printf("Initial: %v\n", initialArray)
 		fmt.Printf("Final:   %v\n", finalArray)

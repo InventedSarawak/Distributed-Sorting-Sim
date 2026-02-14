@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+    default:
+        cmds:
+            - task --list
+
+    build:
+        desc: Compile all distributed sorting algorithms into the bin/ directory
+        cmds:
+            - mkdir -p bin
+            - go build -o bin/odd_even cmd/odd_even/main.go
+            - go build -o bin/sasaki cmd/sasaki/main.go
+            - go build -o bin/alternative cmd/alternative/main.go
+        sources:
+            - cmd/**/*.go
+            - internal/**/*.go
+            - pkg/**/*.go
+        generates:
+            - bin/odd_even
+            - bin/sasaki
+            - bin/alternative
+
+    clean:
+        desc: Remove built binaries
+        cmds:
+            - rm -rf bin/
+
+    run:
+        desc: Run all algorithms with 20 nodes
+        deps: [build]
+        cmds:
+            - ./bin/odd_even -node-count 20
+            - ./bin/sasaki -node-count 20
+            - ./bin/alternative -node-count 20
+
+    benchmark:
+        desc: Run the benchmark script
+        deps: [build]
+        cmds:
+            - ./scripts/benchmark.sh
