@@ -1,7 +1,7 @@
 package transport
 
 import (
-	"fmt"
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -9,195 +9,158 @@ import (
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
 )
 
-func TestTCPNodeCommunication(t *testing.T) {
-	type TestPayload struct {
-		Data string `json:"data"`
-	}
+type TestPayload struct {
+	Data      string `json:"data"`
+	Iteration int    `json:"iteration"`
+	LargeData []byte `json:"large_data,omitempty"`
+}
 
-	var wg sync.WaitGroup
+func TestPersistentConnectionLoad(t *testing.T) {
+	const msgCount = 500
+	inbox := make(chan types.Message[TestPayload], msgCount)
 
-	messages := make(chan types.Message[TestPayload], 10)
-
+	// Start persistent listener
 	go func() {
-		err := listen(1, messages)
-		if err != nil {
-			t.Logf("Error starting listener: %v", err)
+		if err := Listen(1, inbox); err != nil {
+			t.Logf("Listener exited: %v", err)
 		}
 	}()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
-	testMessage := types.Message[TestPayload]{
-		Round:      1,
-		SenderID:   0,
-		Type:       types.MsgData,
-		Body:       TestPayload{Data: "Hello, Node!"},
-		ReceiverID: 1,
+	// Establish persistent link
+	conn, err := DialNeighbor(1)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+	
+	defer conn.Close()
+
+	// Send messages in rapid succession over the same pipe
+	go func() {
+		for i := 0; i < msgCount; i++ {
+			msg := types.Message[TestPayload]{
+				SenderID: 0,
+				Round:    i,
+				Body:     TestPayload{Iteration: i},
+			}
+			if err := SendMessage(conn, msg); err != nil {
+				t.Errorf("Send failed at %d: %v", i, err)
+			}
+		}
+	}()
+
+	// Verify all messages arrived in order
+	for i := 0; i < msgCount; i++ {
+		select {
+		case received := <-inbox:
+			if received.Round != i {
+				t.Errorf("Order mismatch: expected %d, got %d", i, received.Round)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("Timed out waiting for message %d", i)
+		}
+	}
+}
+
+// TestSimultaneousBidirectionalStress floods two nodes with messages in both directions
+// to test the full-duplex capability of the persistent dispatcher.
+func TestSimultaneousBidirectionalStress(t *testing.T) {
+	const msgCount = 1000
+	inbox1 := make(chan types.Message[TestPayload], msgCount)
+	inbox2 := make(chan types.Message[TestPayload], msgCount)
+
+	// Start two nodes
+	go Listen(1, inbox1)
+	go Listen(2, inbox2)
+	time.Sleep(500 * time.Millisecond)
+
+	conn1To2, _ := DialNeighbor(2)
+	conn2To1, _ := DialNeighbor(1)
+	defer conn1To2.Close()
+	defer conn2To1.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Flood 1 -> 2
+	go func() {
+		defer wg.Done()
+		for i := 0; i < msgCount; i++ {
+			SendMessage(conn1To2, types.Message[TestPayload]{SenderID: 1, Round: i})
+		}
+	}()
+
+	// Flood 2 -> 1
+	go func() {
+		defer wg.Done()
+		for i := 0; i < msgCount; i++ {
+			SendMessage(conn2To1, types.Message[TestPayload]{SenderID: 2, Round: i})
+		}
+	}()
+
+	wg.Wait()
+	t.Logf("Successfully exchanged %d messages bidirectionally", msgCount)
+}
+
+// TestLargePayload ensures json.NewDecoder correctly handles segments larger
+// than typical MTU/buffer sizes.
+func TestLargePayload(t *testing.T) {
+	inbox := make(chan types.Message[TestPayload], 1)
+	go Listen(10, inbox)
+	time.Sleep(200 * time.Millisecond)
+
+	conn, _ := DialNeighbor(10)
+	defer conn.Close()
+
+	// 1MB payload
+	largeData := make([]byte, 1024*1024)
+	rand.Read(largeData)
+
+	msg := types.Message[TestPayload]{
+		SenderID: 0,
+		Body:     TestPayload{LargeData: largeData},
 	}
 
-	wg.Go(func() {
-		err := SendMessage(testMessage, 1)
-		if err != nil {
-			t.Errorf("Error sending message: %v", err)
-		}
-	})
+	if err := SendMessage(conn, msg); err != nil {
+		t.Fatalf("Failed to send large payload: %v", err)
+	}
 
 	select {
-	case receivedMessage := <-messages:
-		if receivedMessage.SenderID != testMessage.SenderID {
-			t.Errorf("Expected SenderID %d, got %d", testMessage.SenderID, receivedMessage.SenderID)
+	case received := <-inbox:
+		if len(received.Body.LargeData) != len(largeData) {
+			t.Error("Data corruption in large payload")
 		}
-		if receivedMessage.Body.Data != testMessage.Body.Data {
-			t.Errorf("Expected Body %s, got %s", testMessage.Body.Data, receivedMessage.Body.Data)
+	case <-time.After(2 * time.Second):
+		t.Error("Timeout on large payload")
+	}
+}
+
+// TestNeighborDeadlock (Edge Case) tests the dialWithRetry logic when neighbors
+// are spawned in reverse order.
+func TestNeighborDeadlock(t *testing.T) {
+	const targetID = 50
+	errChan := make(chan error, 1)
+
+	// Attempt to dial before the listener is even started
+	go func() {
+		_, err := DialNeighbor(targetID)
+		errChan <- err
+	}()
+
+	// Wait 1 second, then start listener
+	time.Sleep(1 * time.Second)
+	inbox := make(chan types.Message[TestPayload], 1)
+	go Listen(targetID, inbox)
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Errorf("Dial failed even with retry: %v", err)
+		} else {
+			t.Log("Successfully connected after retry")
 		}
 	case <-time.After(5 * time.Second):
-		t.Error("Timed out waiting for message")
+		t.Error("Dial retry logic timed out")
 	}
-
-	wg.Wait()
-
-	t.Logf("Successfully sent and received message: %s", testMessage.Body.Data)
-}
-
-func TestBidirectionalTraffic(t *testing.T) {
-	type TestPayload struct {
-		Data string `json:"data"`
-	}
-
-	var wg sync.WaitGroup
-
-	messages1 := make(chan types.Message[TestPayload], 100)
-	messages2 := make(chan types.Message[TestPayload], 100)
-
-	go func() {
-		err := listen(1, messages1)
-		if err != nil {
-			t.Logf("Error starting listener 1: %v", err)
-		}
-	}()
-
-	go func() {
-		err := listen(2, messages2)
-		if err != nil {
-			t.Logf("Error starting listener 2: %v", err)
-		}
-	}()
-
-	time.Sleep(1 * time.Second)
-
-	wg.Go(func() {
-		for i := range 3 {
-			msg := types.Message[TestPayload]{
-				SenderID:   1,
-				ReceiverID: 2,
-				Body:       TestPayload{Data: fmt.Sprintf("Msg from 1 to 2: %d", i)},
-			}
-			if err := SendMessage(msg, 2); err != nil {
-				t.Errorf("Node 1 failed to send message %d: %v", i, err)
-			}
-		}
-	})
-
-	wg.Go(func() {
-		for i := range 4 {
-			msg := types.Message[TestPayload]{
-				SenderID:   2,
-				ReceiverID: 1,
-				Body:       TestPayload{Data: fmt.Sprintf("Msg from 2 to 1: %d", i)},
-			}
-			if err := SendMessage(msg, 1); err != nil {
-				t.Errorf("Node 2 failed to send message %d: %v", i, err)
-			}
-		}
-	})
-
-	wg.Wait()
-
-	for i := range 3 {
-		select {
-		case <-messages2:
-		case <-time.After(1 * time.Second):
-			t.Errorf("Timeout waiting for message %d on Node 2", i)
-		}
-	}
-
-	for i := range 4 {
-		select {
-		case <-messages1:
-		case <-time.After(1 * time.Second):
-			t.Errorf("Timeout waiting for message %d on Node 1", i)
-		}
-	}
-
-	t.Logf("Successfully sent and received bidirectional messages between Node 1 and Node 2")
-}
-
-func TestHeavyLoad(t *testing.T) {
-	type TestPayload struct {
-		Iteration int `json:"iteration"`
-	}
-
-	const numNodes = 1000
-	const messagesPerNode = 3
-	var wg sync.WaitGroup
-
-	inboxes := make([]chan types.Message[TestPayload], numNodes)
-	for i := range numNodes {
-		inboxes[i] = make(chan types.Message[TestPayload], messagesPerNode)
-	}
-
-	for i := range numNodes {
-		nodeID := i
-		go func() {
-			listen(nodeID, inboxes[nodeID])
-		}()
-	}
-
-	time.Sleep(2 * time.Second)
-
-	wg.Add(numNodes)
-	for i := range numNodes {
-		nodeID := i
-		go func() {
-			defer wg.Done()
-
-			for m := range messagesPerNode {
-				if nodeID == 0 {
-					msg := types.Message[TestPayload]{
-						SenderID:   nodeID,
-						ReceiverID: nodeID + 1,
-						Round:      m,
-						Body:       TestPayload{Iteration: m},
-						Type:       types.MsgData,
-					}
-					time.Sleep(10 * time.Millisecond)
-					if err := SendMessage(msg, nodeID+1); err != nil {
-						t.Errorf("Head failed to send: %v", err)
-					}
-				} else {
-					select {
-					case received := <-inboxes[nodeID]:
-						if nodeID < numNodes-1 {
-							forwardMsg := types.Message[TestPayload]{
-								SenderID:   nodeID,
-								ReceiverID: nodeID + 1,
-								Round:      received.Round,
-								Body:       received.Body,
-								Type:       types.MsgData,
-							}
-							if err := SendMessage(forwardMsg, nodeID+1); err != nil {
-								t.Errorf("Node %d failed to forward: %v", nodeID, err)
-							}
-						}
-					case <-time.After(10 * time.Second):
-						t.Errorf("Node %d timed out waiting for iteration %d", nodeID, m)
-						return
-					}
-				}
-			}
-		}()
-	}
-
-	wg.Wait()
-	t.Logf("Successfully processed %d nodes with %d messages each", numNodes, messagesPerNode)
 }

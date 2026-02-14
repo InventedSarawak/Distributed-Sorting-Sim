@@ -3,6 +3,7 @@ package transport
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -12,7 +13,8 @@ import (
 
 const DefaultPort = 8000
 
-func listen[Message any](id int, messages chan Message) error {
+// listen maintains your original structure but starts persistent handlers
+func Listen[Message any](id int, messages chan Message) error {
 	port := getCurrentPort(id)
 	address := ":" + strconv.Itoa(port)
 
@@ -40,55 +42,56 @@ func listen[Message any](id int, messages chan Message) error {
 			continue
 		}
 
+		// This goroutine becomes the persistent Inbox Dispatcher
 		go func(c net.Conn) {
 			if err := HandleConnection(c, messages); err != nil {
-				fmt.Printf("error handling connection: %v\n", err)
+				fmt.Printf("connection closed: %v\n", err)
 			}
 		}(conn)
 	}
 }
 
+// HandleConnection is now the Inbox Dispatcher: it loops until the connection closes
 func HandleConnection[Message any](conn net.Conn, messages chan Message) error {
 	defer conn.Close()
-
 	decoder := json.NewDecoder(conn)
 
-	var message Message
-	err := decoder.Decode(&message)
-	if err != nil {
-		return fmt.Errorf("failed to decode message: %w", err)
+	for {
+		var message Message
+		// Decode waits for the next JSON object in the persistent stream
+		err := decoder.Decode(&message)
+		if err != nil {
+			if err == io.EOF {
+				return nil // Connection closed gracefully
+			}
+			return fmt.Errorf("failed to decode stream: %w", err)
+		}
+
+		// Push to the node's internal inbox
+		messages <- message
+
+		// Send persistent acknowledgment
+		_, err = conn.Write([]byte(types.MsgAck))
+		if err != nil {
+			return fmt.Errorf("failed to send acknowledgment: %w", err)
+		}
 	}
-
-	messages <- message
-
-	_, err = conn.Write([]byte(types.MsgAck))
-	if err != nil {
-		return fmt.Errorf("failed to send acknowledgment: %w", err)
-	}
-
-	return nil
 }
 
-func SendMessage[Payload any](message types.Message[Payload], receiverID int) error {
-	port := getCurrentPort(receiverID)
-	address := "localhost:" + strconv.Itoa(port)
-
-	conn, err := dialWithRetry(address, 10)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	messageBytes, err := json.Marshal(message)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
+// SendMessage now uses a persistent connection instead of dialing every time
+func SendMessage[Payload any](conn net.Conn, message types.Message[Payload]) error {
+	if conn == nil {
+		return fmt.Errorf("connection not established")
 	}
 
-	_, err = conn.Write(messageBytes)
+	// Use an encoder to write directly to the persistent stream
+	encoder := json.NewEncoder(conn)
+	err := encoder.Encode(message)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
+		return fmt.Errorf("failed to encode message: %w", err)
 	}
 
+	// Wait for acknowledgment on the same stream
 	ackBuffer := make([]byte, len(types.MsgAck))
 	_, err = conn.Read(ackBuffer)
 	if err != nil {
@@ -102,10 +105,16 @@ func SendMessage[Payload any](message types.Message[Payload], receiverID int) er
 	return nil
 }
 
+// DialNeighbor is used ONCE at the start to establish the persistent manager links
+func DialNeighbor(targetID int) (net.Conn, error) {
+	port := getCurrentPort(targetID)
+	address := "localhost:" + strconv.Itoa(port)
+	return dialWithRetry(address, 10)
+}
+
 func dialWithRetry(address string, maxRetries int) (net.Conn, error) {
 	var conn net.Conn
 	var err error
-
 	backoff := 100 * time.Millisecond
 
 	for range maxRetries {
@@ -113,12 +122,10 @@ func dialWithRetry(address string, maxRetries int) (net.Conn, error) {
 		if err == nil {
 			return conn, nil
 		}
-
 		time.Sleep(backoff)
 		backoff *= 2
 		backoff += time.Duration(10) * time.Millisecond
 	}
-
 	return nil, fmt.Errorf("after %d attempts, last error: %w", maxRetries, err)
 }
 

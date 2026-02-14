@@ -2,75 +2,65 @@
 
 ## 1. Project Initialization & Setup
 - [x] Initialize Go module: `go mod init <your-repo-name>`
-- [x] Create folder structure:
-    - `cmd/`, `internal/`, `pkg/`, `bin/`, `scripts/`, `outputs/`
-- [x] Define shared message types in `pkg/types/message.go` (Value, Step, Type).
+- [x] Create folder structure: `cmd/`, `internal/`, `pkg/`, `bin/`, `scripts/`, `outputs/`
+- [x] Define shared message types in `pkg/types/message.go`
 - [ ] Implement TCP Node primitives in `internal/transport/tcp_node.go`:
-    - [x] `Listen()` logic for incoming neighbor connections.
-    - [x] `Connect()` logic to link to left/right neighbors.
-    - [x] `Send/Receive` helpers with JSON encoding.
-    - [ ] Barrier Synchronization logic (to keep rounds in sync).
+    - [x] `Listen()` logic with retry for port binding
+    - [x] `SendMessage()` with exponential backoff dialing
+    - [x] `HandleConnection()` using `json.NewDecoder` for stream safety
+    - [ ] **Persistent Connection Manager**: Refactor `SendMessage` to maintain open `net.Conn` to reduce handshake overhead for $n=5000$.
+    - [ ] **Inbox Dispatcher**: Implement background goroutines to route incoming messages to `LeftInbox` or `RightInbox` based on `IncomingDirection`.
 
 ---
 
-## 2. Algorithm Implementation (`internal/algorithms/`)
+## 2. Simulator & Synchronization Engine (`internal/simulator/`)
+- [ ] **Implement Barrier Synchronization (`barrier.go`)**:
+    - [ ] **`RoundBuffer[T]`**: Create a thread-safe mailbox to store "future" messages that arrive before the node is ready for that round.
+    - [ ] **`GetStepMessage(targetRound)`**: Implement blocking logic that retrieves a message from the buffer if present, or waits on the inbox channel.
+    - [ ] **`WaitForNeighbors(currentRound)`**: Implement a local barrier that ensures a node has received all required neighbor data before proceeding.
+- [ ] **Implement Execution Engine (`engine.go`)**:
+    - [ ] **Node Lifecycle Manager**: Logic to instantiate `Node[T]` with correct `Position` (Head/Tail/Middle) and ID.
+    - [ ] **Logical Clock Management**: Logic to increment `Node.Round` only after all sub-steps of an algorithm phase are verified.
+    - [ ] **Topology Handshake**: Implement a pre-start phase where all $n$ nodes verify TCP connectivity before Round 0 begins.
+
+---
+
+## 3. Algorithm Implementation (`internal/algorithms/`)
 ### (a) Odd-Even Transposition
-- [ ] Implement `OddEvenStep()`:
-    - [ ] Even Round: Nodes (2i, 2i+1) exchange and compare.
-    - [ ] Odd Round: Nodes (2i+1, 2i+2) exchange and compare.
+- [ ] Implement `OddEvenStep()`: Use generic `Message[OddEvenPayload]` to exchange and compare values.
 - [ ] Verify sorting for $n=10$ locally.
 
 ### (b) Sasaki's Time-Optimal Algorithm
-- [ ] Implement State Machine logic (handling the $n$ time-optimal rounds).
-- [ ] Handle simultaneous bidirectional value movement.
+- [ ] Define `SasakiPayload`: Include `Value` and `IsMarked` state.
+- [ ] Implement 3-Phase Round logic:
+    - [ ] **Phase 1 (Probe)**: Sync `IsMarked` status with neighbors.
+    - [ ] **Phase 2 (Data)**: Perform simultaneous bidirectional value movement.
+    - [ ] **Phase 3 (Ack)**: Confirm state transitions to prevent race conditions.
 - [ ] Verify sorting for $n=10$ locally.
 
-### (c) Alternative: Pipelined Min-Max (or Prasath's)
-- [ ] Implement logic for the chosen alternative.
-- [ ] Ensure it completes in $O(n)$ rounds.
+### (c) Alternative: Pipelined Min-Max
+- [ ] Implement logic for the chosen alternative in $O(n)$ rounds.
 - [ ] Verify sorting for $n=10$ locally.
 
 ---
 
-## 3. The Orchestrator (`cmd/`)
-- [ ] Create `main.go` for each algorithm in `cmd/`:
-    - [ ] Support CLI flags for `-n` (number of nodes) and `-port-start`.
-    - [ ] Implement "Spawner" logic to trigger $n$ nodes.
-    - [ ] Implement "Result Collector" to gather final values and verify sort order.
+## 4. The Orchestrator (`cmd/`)
+- [ ] Create `main.go` for each algorithm: Support `-n` and `-port-start` flags.
+- [ ] **Spawner**: Logic to trigger $n$ node goroutines with unique port assignments.
+- [ ] **Result Collector**: Logic to aggregate final values from all nodes and verify global sort order.
 
 ---
 
-## 4. Benchmarking & Data Collection
-- [ ] Write `scripts/run_benchmarks.sh` to automate:
-    - [ ] $n = 1000$
-    - [ ] $n = 2000$
-    - [ ] $n = 3000$
-    - [ ] $n = 5000$
-- [ ] Capture "Wall Clock Time" for each run.
-- [ ] Save output logs for all 3 algorithms to `outputs/`.
+## 5. Benchmarking & Data Collection
+- [ ] Write `scripts/run_benchmarks.sh` for $n = 1000, 2000, 3000, 5000$.
+- [ ] **Metrics Tracking**:
+    - [ ] Capture **Wall Clock Time** per run.
+    - [ ] Capture **Total Message Count** (TCP packets) for complexity analysis.
+- [ ] Save output logs to `outputs/`.
 
 ---
 
-## 5. Documentation & Final Polish
-- [ ] **README.txt**:
-    - [ ] Add compilation instructions (`go build ...`).
-    - [ ] Add run instructions for each algorithm.
-- [ ] **Report**:
-    - [ ] Create the **Comparison Table** ($n$ vs Time).
-    - [ ] Document **Time Complexity** ($O(n)$).
-    - [ ] Document **Space Complexity** ($O(1)$ per node + choice of data structures).
-- [ ] **Validation**:
-    - [ ] Check that all file names are lowercase.
-    - [ ] Ensure TCP ports are released correctly after each run.
-
----
-
-## 6. Submission Packaging
-- [ ] Compile all 3 programs and verify they are in the zip.
-- [ ] Verify Roll No & Year (e.g., `S2024...`).
-- [ ] Name the file: `YYYY-abc-dc-assign01.zip` (Check all lowercase).
-- [ ] **Final Check**: Does the zip contain:
-    - [ ] 3 Programs?
-    - [ ] README.txt?
-    - [ ] Results/Output files?
-    - [ ] Report with complexities?
+## 6. Documentation & Final Polish
+- [ ] **README.txt**: Include `ulimit -n 10000` instructions for high-node simulations.
+- [ ] **Report**: Comparison table, time complexity ($O(n)$), and space complexity ($O(1)$ per node).
+- [ ] **Validation**: Ensure all files are lowercase and TCP ports release correctly.
