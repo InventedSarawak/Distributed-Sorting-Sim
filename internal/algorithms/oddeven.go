@@ -17,8 +17,11 @@ func RunOddEven(
 	engine *simulator.SimulatorEngine[OddEvenPayload],
 	leftBuf, rightBuf *simulator.RoundBuffer[OddEvenPayload],
 	sendFunc func(net.Conn, types.Message[OddEvenPayload]) error,
+	debug bool,
 ) {
-	fmt.Printf("[Algo] Node %d: Starting Sort (Value: %d)\n", n.ID, n.Value.Value)
+	if debug {
+		fmt.Printf("[Algo] Node %d: Starting Sort (Value: %d)\n", n.ID, n.Value.Value)
+	}
 
 	for round := 0; round < n.TotalNode; round++ {
 		isEvenRound := round%2 == 0
@@ -46,7 +49,6 @@ func RunOddEven(
 		}
 
 		if targetID >= 0 && targetID < n.TotalNode {
-			// Send
 			msg := types.Message[OddEvenPayload]{
 				SenderID:   n.ID,
 				ReceiverID: targetID,
@@ -60,11 +62,8 @@ func RunOddEven(
 				conn = n.LeftConn
 			}
 
-			// fmt.Printf("[Algo] Node %d: Round %d - Sending to %d\n", n.ID, round, targetID)
 			_ = sendFunc(conn, msg)
 
-			// Receive
-			// fmt.Printf("[Algo] Node %d: Round %d - Waiting for %d\n", n.ID, round, targetID)
 			var neighborMsg types.Message[OddEvenPayload]
 			if isLeftExchange {
 				neighborMsg = leftBuf.GetStepMessage(round)
@@ -72,9 +71,9 @@ func RunOddEven(
 				neighborMsg = rightBuf.GetStepMessage(round)
 			}
 
-			// Compare
 			oldVal := n.Value.Value
 			neighborVal := neighborMsg.Body.Value
+
 			if isLeftExchange {
 				if n.Value.Value < neighborVal {
 					n.Value.Value = neighborVal
@@ -85,12 +84,14 @@ func RunOddEven(
 				}
 			}
 
-			if oldVal != n.Value.Value {
+			if debug && oldVal != n.Value.Value {
 				fmt.Printf("[Algo] Node %d: Swapped %d -> %d (Round %d)\n", n.ID, oldVal, n.Value.Value, round)
 			}
 		}
-
 		engine.IncrementClock(n)
 	}
-	fmt.Printf("[Algo] Node %d: Sort Complete. Final Value: %d\n", n.ID, n.Value.Value)
+
+	if debug {
+		fmt.Printf("[Algo] Node %d: Sort Complete. Final Value: %d\n", n.ID, n.Value.Value)
+	}
 }

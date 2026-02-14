@@ -13,7 +13,6 @@ import (
 
 const DefaultPort = 8000
 
-// Listen is a helper, but we will mostly use manual listening in SetupNode now.
 func Listen[Message any](id int, messages chan Message) error {
 	port := getCurrentPort(id)
 	address := ":" + strconv.Itoa(port)
@@ -32,11 +31,7 @@ func Listen[Message any](id int, messages chan Message) error {
 	}
 }
 
-// HandleConnection reads messages in a loop and pushes to the channel.
-// REMOVED: The blocking ACK write.
 func HandleConnection[Message any](conn net.Conn, messages chan Message) error {
-	// We do NOT close the connection here because it might be used for writing elsewhere.
-	// defer conn.Close()
 
 	decoder := json.NewDecoder(conn)
 	for {
@@ -52,13 +47,11 @@ func HandleConnection[Message any](conn net.Conn, messages chan Message) error {
 	}
 }
 
-// SendMessage encodes and writes the message.
-// REMOVED: The blocking ACK read.
 func SendMessage[Payload any](conn net.Conn, message types.Message[Payload]) error {
 	if conn == nil {
 		return fmt.Errorf("connection not established")
 	}
-	// Direct encode to stream
+
 	return json.NewEncoder(conn).Encode(message)
 }
 

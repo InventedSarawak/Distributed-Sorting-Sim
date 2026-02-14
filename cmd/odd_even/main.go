@@ -15,14 +15,17 @@ import (
 )
 
 func main() {
-	nodeCount := flag.Uint("node-count", 10, "Number of Nodes") // Default to 10 for debug
+	nodeCount := flag.Uint("node-count", 10, "Number of Nodes")
 	inputTypeStr := flag.String("input-type", "random", "Input type")
+	debug := flag.Bool("debug", false, "Enable verbose logging")
+	benchmark := flag.Bool("benchmark", false, "Enable benchmarking metrics")
 	flag.Parse()
 
-	fmt.Printf("--- Distributed Sorting Simulator ---\n")
-	fmt.Printf("Nodes: %d | Type: %s\n", *nodeCount, *inputTypeStr)
+	if *debug {
+		fmt.Printf("--- Distributed Sorting Simulator (Odd-Even) ---\n")
+		fmt.Printf("Nodes: %d | Type: %s\n", *nodeCount, *inputTypeStr)
+	}
 
-	// ... (Input type switch logic same as before) ...
 	var inputType types.InputType
 	switch strings.ToLower(*inputTypeStr) {
 	case "random":
@@ -43,6 +46,14 @@ func main() {
 
 	engine := simulator.NewEngine[algorithms.OddEvenPayload](int(*nodeCount))
 	var wg sync.WaitGroup
+	var startTime time.Time
+
+	initialArray := make([]int, *nodeCount)
+	finalArray := make([]int, *nodeCount)
+
+	if *benchmark {
+		startTime = time.Now()
+	}
 
 	for i := 0; i < int(*nodeCount); i++ {
 		wg.Add(1)
@@ -50,9 +61,8 @@ func main() {
 			defer wg.Done()
 
 			node := &types.Node[algorithms.OddEvenPayload]{
-				ID:        id,
-				TotalNode: int(*nodeCount),
-				// Buffer sizes increased to prevent deadlocks
+				ID:         id,
+				TotalNode:  int(*nodeCount),
 				LeftInbox:  make(chan types.Message[algorithms.OddEvenPayload], 500),
 				RightInbox: make(chan types.Message[algorithms.OddEvenPayload], 500),
 			}
@@ -68,30 +78,48 @@ func main() {
 			leftBuf := simulator.NewRoundBuffer(node.LeftInbox)
 			rightBuf := simulator.NewRoundBuffer(node.RightInbox)
 
-			// 1. Setup (Network + Discovery)
-			if err := simulator.SetupNode(node); err != nil {
-				fmt.Printf("Error setup node %d: %v\n", id, err)
+			if err := simulator.SetupNode(node, *debug); err != nil {
+				if *debug {
+					fmt.Printf("Error setup node %d: %v\n", id, err)
+				}
 				return
 			}
 
-			// Slight delay to ensure listeners are active before discovery flooding
 			time.Sleep(100 * time.Millisecond)
 
-			if err := engine.InitialSetup(node, cfg, leftBuf, rightBuf); err != nil {
-				fmt.Printf("Error discovery node %d: %v\n", id, err)
+			if err := engine.InitialSetup(node, cfg, leftBuf, rightBuf, *debug); err != nil {
+				if *debug {
+					fmt.Printf("Error discovery node %d: %v\n", id, err)
+				}
 				return
 			}
 
-			// 2. Generate Value
 			val := shared.GenerateInitialValue(id, cfg)
 			node.Value = algorithms.OddEvenPayload{Value: val}
 
-			// 3. Run
-			algorithms.RunOddEven(node, engine, leftBuf, rightBuf, transport.SendMessage[algorithms.OddEvenPayload])
+			initialArray[id] = val
 
+			algorithms.RunOddEven(node, engine, leftBuf, rightBuf, transport.SendMessage[algorithms.OddEvenPayload], *debug)
+
+			finalArray[id] = node.Value.Value
 		}(i)
 	}
 
 	wg.Wait()
-	fmt.Println("Simulation Complete.")
+
+	if *nodeCount < 20 {
+		fmt.Printf("\n--- Results (N=%d) ---\n", *nodeCount)
+		fmt.Printf("Initial: %v\n", initialArray)
+		fmt.Printf("Final:   %v\n", finalArray)
+	}
+
+	if *benchmark {
+		elapsed := time.Since(startTime)
+		fmt.Printf("\n--- Benchmark Results ---\n")
+		fmt.Printf("Algorithm: Odd-Even Transposition\n")
+		fmt.Printf("Nodes: %d\n", *nodeCount)
+		fmt.Printf("Time: %v\n", elapsed)
+	} else {
+		fmt.Println("Simulation Complete.")
+	}
 }

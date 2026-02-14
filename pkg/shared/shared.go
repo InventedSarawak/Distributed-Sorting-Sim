@@ -8,7 +8,6 @@ import (
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
 )
 
-// GenerateInitialValue returns a raw integer based on the config.
 func GenerateInitialValue(id int, config types.Config) int {
 	var val int
 	switch config.InputType {
@@ -23,7 +22,6 @@ func GenerateInitialValue(id int, config types.Config) int {
 	return val
 }
 
-// Stub for compatibility
 func DiscoverTotalNodes[T any](
 	n *types.Node[T],
 	sendFunc func(net.Conn, types.Message[T]) error,
