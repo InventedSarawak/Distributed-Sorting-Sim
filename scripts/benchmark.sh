@@ -5,7 +5,7 @@ if [ ! -f "bin/odd_even" ] || [ ! -f "bin/sasaki" ] || [ ! -f "bin/alternative" 
     exit 1
 fi
 
-NODE_COUNTS=(10 50 100 500 1000 2000 3000 5000)
+NODE_COUNTS=(1000 2000 3000 5000)
 INPUT_TYPE="random"
 RESULTS_FILE="results.txt"
 

@@ -1,0 +1,97 @@
+DISTRIBUTED SORTING ALGORITHMS REPORT
+=====================================
+
+1. SYSTEM ARCHITECTURE & IMPLEMENTATION DETAILS
+
+This simulation implements a distributed computing environment using the Go programming language. The architecture is designed to mimic a real network of processing entities.
+
+A. Node Representation
+   - Each processing entity (Node) is implemented as a concurrent Go routine (`go func`). 
+   - Nodes operate asynchronously but synchronize logically via a Global Clock (Round Number).
+
+B. Communication Layer (Data Structures)
+   - Transport: Communication between nodes is handled via TCP sockets (`net.Conn`). Each node binds a listener to a specific port and dials its immediate neighbors.
+   - Serialization: Messages are serialized using JSON (`encoding/json`). While computationally expensive, this ensures a standardized payload format across the network.
+   - Buffering: To handle asynchronous message arrival (e.g., receiving a Round 5 message while still processing Round 4), a `RoundBuffer` data structure is used. This is implemented using a Hash Map (`map[int]Message`) protected by a Mutex to store future messages until the node is ready for them.
+
+C. Synchronization
+   - A logical clock is maintained by each node (`round` variable).
+   - Barrier Synchronization is implemented within the algorithm loops. A node will block (wait) until it receives the necessary messages from its neighbors for the specific current round before proceeding.
+
+=====================================
+
+2. ALGORITHM COMPLEXITY & DATA STRUCTURE ANALYSIS
+
+(a) Odd-Even Transposition Algorithm
+------------------------------------
+Time Complexity: O(N)
+   - The algorithm requires N synchronous rounds to sort any permutation on a linear array.
+Space Complexity: O(1) per process
+   - Specific Data Structures: 
+     - Payload: A simple struct containing a single `int` value.
+     - Channels: Two buffered channels (`LeftInbox`, `RightInbox`) acting as queues for incoming data.
+   - Implementation: 
+     - In even rounds, even-indexed nodes exchange with right neighbors.
+     - In odd rounds, odd-indexed nodes exchange with right neighbors.
+     - The minimal payload size results in the lowest CPU overhead for serialization in this simulation.
+
+(b) Sasaki's Time-Optimal Algorithm
+-----------------------------------
+Time Complexity: O(N)
+   - Theoretical bound is exactly N-1 rounds.
+Space Complexity: O(1) per process (but higher constant factor)
+   - Specific Data Structures: 
+     - Payload: A complex struct `SasakiPayload` containing:
+       1. `LValue` (struct: Value int, IsMarked bool)
+       2. `RValue` (struct: Value int, IsMarked bool)
+       3. `Area` (int) - A counter tracking the "area" of sorted segments.
+   - Implementation: 
+     - Each round involves a 3-phase process: Send(Probe), Receive(Barrier), and Update.
+     - The complex state update logic (managing the `Area` variable based on boundary crossings) imposes higher CPU instruction costs per round compared to Odd-Even.
+     - The larger JSON payload increases the I/O latency significantly in the simulation.
+
+(c) Alternative Time-Optimal Algorithm (Pipelined Min-Max)
+----------------------------------------------------------
+Time Complexity: O(N)
+   - Uses a pipelined approach to move values.
+Space Complexity: O(1) per process
+   - Specific Data Structures: 
+     - Payload: A simple struct containing a single `int` value.
+     - Local Buffer: A slice `[]int` of size 3 used only by "Center" nodes to perform a local sort of the triplet (Left, Center, Right).
+   - Implementation: 
+     - Nodes assume dynamic roles (Center, Left-Wing, Right-Wing) based on the round number: `(round + 1) % 3`.
+     - Synchronization is stricter here: A Center node performs a blocking wait for *both* Left and Right neighbors. This creates dependencies that can stall the pipeline if the OS scheduler delays one thread, affecting the wall-clock time in the simulation.
+
+=====================================
+
+3. COMPARISON TABLE
+
+The following table summarizes the wall-clock execution time for various node counts (N) on a single-machine simulation.
+
+| N      | Odd-Even Transposition | Sasaki's Time-Optimal | Alternative             |
+|--------|------------------------|-----------------------|-------------------------|
+| 10     | 313.17 ms              | 312.67 ms             | 312.62 ms               |
+| 50     | 428.64 ms              | 437.68 ms             | 434.50 ms               |
+| 100    | 381.63 ms              | 417.50 ms             | 481.13 ms               |
+| 500    | 1.32 s                 | 2.43 s                | 1.73 s                  |
+| 1000   | 3.96 s                 | 8.86 s                | 5.01 s                  |
+| 2000   | 13.76 s                | 32.90 s               | 19.20 s                 |
+| 3000   | 30.99 s                | 1m 15.19 s            | 43.95 s                 |
+| 5000   | 1m 30.56 s             | 3m 35.15 s            | 2m 1.42 s               |
+
+=====================================
+
+4. OBSERVATIONS & PERFORMANCE ANALYSIS
+
+1. Small Scale (N < 100):
+   For small node counts, the initialization overhead of the simulator (setting up TCP listeners, allocating 100+ goroutines, and establishing connections) dominates the execution time. All three algorithms perform similarly, averaging around 300-400ms.
+
+2. Large Scale (N > 1000):
+   As N increases, the Odd-Even algorithm consistently outperforms Sasaki's and the Alternative algorithm in this simulation environment. 
+   
+   - Odd-Even vs. Sasaki: Although Sasaki's algorithm is theoretically optimal with fewer rounds (N-1 vs N), the payload size is much larger. Sasaki exchanges complex objects (L-Value, R-Value, Area) requiring heavy JSON serialization/deserialization, whereas Odd-Even exchanges simple integers. On a single CPU simulating thousands of nodes, this CPU overhead for JSON processing outweighs the theoretical round efficiency.
+   
+   - Alternative Algorithm: This falls between the two. It is faster than Sasaki because the payload is smaller (integers), but slower than Odd-Even due to complex synchronization barriers. In the Alternative algorithm, a Center node must wait for both Left and Right neighbors. If the Go runtime scheduler delays the execution of one neighbor, the Center node sits idle, causing pipeline stalls. Odd-Even only requires pairwise synchronization, making it more resilient to scheduling jitter.
+
+3. Scalability:
+   The Odd-Even algorithm showed the best scalability for this specific simulation implementation, completing N=5000 in ~1.5 minutes, while Sasaki took ~3.5 minutes due to the complexity of state management per node.
