@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"math/rand"
 
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/transport"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
@@ -217,3 +218,18 @@ func DiscoverTotalNodes[T any](n *types.Node[T], leftBuf, rightBuf *RoundBuffer[
 	n.TotalNode = leftDist + rightDist + 1
 	return n.TotalNode, nil
 }
+
+func GenerateInitialValue(id int, config types.Config) int {
+	var val int
+	switch config.InputType {
+	case types.Sorted:
+		val = id
+	case types.Reverse:
+		val = int(config.NodeCount) - 1 - id
+	case types.Random:
+		r := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
+		val = r.Intn(1000)
+	}
+	return val
+}
+

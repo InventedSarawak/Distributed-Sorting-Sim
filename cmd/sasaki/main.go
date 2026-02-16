@@ -10,7 +10,6 @@ import (
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/algorithms"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/simulator"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/internal/transport"
-	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/shared"
 	"github.com/InventedSarawak/Distributed-Sorting-Sim/pkg/types"
 )
 
@@ -74,7 +73,7 @@ func main() {
 				return
 			}
 
-			val := shared.GenerateInitialValue(id, cfg)
+			val := simulator.GenerateInitialValue(id, cfg)
 			node.Value = algorithms.SasakiPayload{Value: val}
 
 			initialArray[id] = val
